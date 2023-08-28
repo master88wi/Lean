@@ -16,14 +16,15 @@
 using System;
 using NodaTime;
 using System.Linq;
+using Python.Runtime;
 using QuantConnect.Data;
 using QuantConnect.Util;
+using QuantConnect.Python;
 using QuantConnect.Interfaces;
 using QuantConnect.Securities;
 using QuantConnect.Data.Market;
 using System.Collections.Generic;
-using QuantConnect.Python;
-using Python.Runtime;
+using QuantConnect.Data.Auxiliary;
 
 namespace QuantConnect.Algorithm
 {
@@ -1011,6 +1012,11 @@ namespace QuantConnect.Algorithm
         /// This is useful to filter OpenInterest by default from history requests unless it's explicitly requested</remarks>
         private bool SubscriptionDataConfigTypeFilter(Type targetType, Type configType)
         {
+            if (configType == typeof(ZipEntryName) && targetType != typeof(ZipEntryName))
+            {
+                // this is an internal auxiliary data type used for chain contract generation, user doesn't care about it
+                return false;
+            }
             var targetIsGenericType = targetType == typeof(BaseData);
 
             return targetType.IsAssignableFrom(configType) && (!targetIsGenericType || configType != typeof(OpenInterest));

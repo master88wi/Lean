@@ -309,13 +309,17 @@ namespace QuantConnect.Securities
         public T GetData<T>()
             where T : BaseData
         {
-            IReadOnlyList<BaseData> list;
-            if (!TryGetValue(typeof(T), out list) || list.Count == 0)
-            {
-                return default(T);
-            }
+            return (T)GetDataImpl(typeof(T));
+        }
 
-            return list[list.Count - 1] as T;
+        /// <summary>
+        /// Get last data packet received for this security of the specified type
+        /// </summary>
+        /// <param name="dataType">The data type</param>
+        /// <returns>The last data packet, null if none received of type</returns>
+        public dynamic GetData(Type dataType)
+        {
+            return GetDataImpl(dataType);
         }
 
         /// <summary>
@@ -467,6 +471,17 @@ namespace QuantConnect.Securities
             targetToModify._dataByType = sourceToShare._dataByType;
             targetToModify._lastTickTrades = sourceToShare._lastTickTrades;
             targetToModify._lastTickQuotes = sourceToShare._lastTickQuotes;
+        }
+
+        private BaseData GetDataImpl(Type type)
+        {
+            IReadOnlyList<BaseData> list;
+            if (!TryGetValue(type, out list) || list.Count == 0)
+            {
+                return null;
+            }
+
+            return list[list.Count - 1];
         }
     }
 }

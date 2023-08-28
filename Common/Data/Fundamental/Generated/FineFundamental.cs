@@ -76,27 +76,37 @@ namespace QuantConnect.Data.Fundamental
 		/// <summary>
 		/// Creates an instance of the FineFundamental class
 		/// </summary>
-		public FineFundamental()
+		public FineFundamental() : this(new CompanyReference(), new SecurityReference(), new FinancialStatements(), new EarningReports(), new OperationRatios(),
+            new EarningRatios(), new ValuationRatios(), new CompanyProfile(), new AssetClassification())
 		{
-			DataType = MarketDataType.Auxiliary;
+        }
 
-			CompanyReference = new CompanyReference();
-			SecurityReference = new SecurityReference();
-			FinancialStatements = new FinancialStatements();
-			EarningReports = new EarningReports();
-			OperationRatios = new OperationRatios();
-			EarningRatios = new EarningRatios();
-			ValuationRatios = new ValuationRatios();
-			CompanyProfile = new CompanyProfile();
-			AssetClassification = new AssetClassification();
-		}
+        /// <summary>
+        /// Creates an instance of the FineFundamental class
+        /// </summary>
+        public FineFundamental(CompanyReference companyReference, SecurityReference securityReference, FinancialStatements financialStatements,
+            EarningReports earningReports, OperationRatios operationRatios, EarningRatios earningRatios, ValuationRatios valuationRatios,
+            CompanyProfile companyProfile, AssetClassification assetClassification)
+        {
+            DataType = MarketDataType.Auxiliary;
 
-		/// <summary>
-		/// Applies updated values from <paramref name="update"/> to this instance
-		/// </summary>
-		/// <remarks>Used to apply data updates to the current instance. This WILL overwrite existing values. Default update values are ignored.</remarks>
-		/// <param name="update">The next data update for this instance</param>
-		public void UpdateValues(FineFundamental update)
+            CompanyReference = companyReference;
+            SecurityReference = securityReference;
+            FinancialStatements = financialStatements;
+            EarningReports = earningReports;
+            OperationRatios = operationRatios;
+            EarningRatios = earningRatios;
+            ValuationRatios = valuationRatios;
+            CompanyProfile = companyProfile;
+            AssetClassification = assetClassification;
+        }
+
+        /// <summary>
+        /// Applies updated values from <paramref name="update"/> to this instance
+        /// </summary>
+        /// <remarks>Used to apply data updates to the current instance. This WILL overwrite existing values. Default update values are ignored.</remarks>
+        /// <param name="update">The next data update for this instance</param>
+        public void UpdateValues(FineFundamental update)
 		{
 			if (update == null) return;
 

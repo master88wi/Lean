@@ -15,7 +15,11 @@
 
 using System;
 using System.IO;
+using System.Linq;
 using Newtonsoft.Json;
+using System.Globalization;
+using System.Collections.Generic;
+using System.Collections.Concurrent;
 using static QuantConnect.StringExtensions;
 
 namespace QuantConnect.Data.Fundamental
@@ -25,6 +29,9 @@ namespace QuantConnect.Data.Fundamental
     /// </summary>
     public partial class FineFundamental
     {
+        private static readonly ConcurrentDictionary<int, List<DateTime>> FineFilesCache
+            = new ConcurrentDictionary<int, List<DateTime>>();
+
         /// <summary>
         /// The end time of this data.
         /// </summary>
@@ -67,10 +74,7 @@ namespace QuantConnect.Data.Fundamental
         /// </summary>
         public override SubscriptionDataSource GetSource(SubscriptionDataConfig config, DateTime date, bool isLiveMode)
         {
-            var basePath = Globals.GetDataFolderPath(Invariant($"equity/{config.Market}/fundamental/fine"));
-            var source = Path.Combine(basePath, Invariant($"{config.Symbol.Value.ToLowerInvariant()}/{date:yyyyMMdd}.zip"));
-
-            return new SubscriptionDataSource(source, SubscriptionTransportMedium.LocalFile, FileFormat.Csv);
+            return GetSource(this, config, date, isLiveMode);
         }
 
         /// <summary>
@@ -86,6 +90,172 @@ namespace QuantConnect.Data.Fundamental
             data.Time = date;
 
             return data;
+        }
+
+        /// <summary>
+        /// Clones this fine data instance
+        /// </summary>
+        /// <returns></returns>
+        public override BaseData Clone()
+        {
+            return new FineFundamental
+            {
+                DataType = MarketDataType.Auxiliary,
+                Symbol = Symbol,
+                Time = Time,
+                CompanyReference = CompanyReference,
+                SecurityReference = SecurityReference,
+                FinancialStatements = FinancialStatements,
+                EarningReports = EarningReports,
+                OperationRatios = OperationRatios,
+                EarningRatios = EarningRatios,
+                ValuationRatios = ValuationRatios,
+                AssetClassification = AssetClassification,
+                CompanyProfile = CompanyProfile
+            };
+        }
+
+        /// <summary>
+        /// This is a daily data set
+        /// </summary>
+        public override List<Resolution> SupportedResolutions()
+        {
+            return DailyResolution;
+        }
+
+        /// <summary>
+        /// This is a daily data set
+        /// </summary>
+        public override Resolution DefaultResolution()
+        {
+            return Resolution.Daily;
+        }
+
+        private static SubscriptionDataSource GetSourceForDatae(FineFundamental fine, SubscriptionDataConfig config, DateTime date, bool isLiveMode)
+        {
+            var basePath = Globals.GetDataFolderPath(Invariant($"equity/{config.Market}/fundamental/fine"));
+            var source = Path.Combine(basePath, Invariant($"{config.Symbol.Value.ToLowerInvariant()}/{date:yyyyMMdd}.zip"));
+
+            return new SubscriptionDataSource(source, SubscriptionTransportMedium.LocalFile, FileFormat.Csv);
+        }
+
+        /// <summary>
+        /// Returns a SubscriptionDataSource for the FineFundamental class,
+        /// returning data from a previous date if not available for the requested date
+        /// </summary>
+        private static SubscriptionDataSource GetSource(FineFundamental fine, SubscriptionDataConfig config, DateTime date, bool isLiveMode)
+        {
+            var source = GetSourceForDatae(fine, config, date, isLiveMode);
+
+            if (File.Exists(source.Source))
+            {
+                return source;
+            }
+
+            if (isLiveMode)
+            {
+                var result = DailyBackwardsLoop(fine, config, date, source, isLiveMode);
+                // if we didn't fine any file we just fallback into listing the directory
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+
+            var cacheKey = config.Symbol.Value.ToLowerInvariant().GetHashCode();
+            List<DateTime> availableDates;
+
+            // only use cache in backtest, since in live mode new fine files are added
+            // we still didn't load available fine dates for this symbol
+            if (isLiveMode || !FineFilesCache.TryGetValue(cacheKey, out availableDates))
+            {
+                try
+                {
+                    var path = Path.GetDirectoryName(source.Source) ?? string.Empty;
+                    availableDates = Directory.GetFiles(path, "*.zip")
+                        .Select(
+                            filePath =>
+                            {
+                                try
+                                {
+                                    return DateTime.ParseExact(
+                                        Path.GetFileNameWithoutExtension(filePath),
+                                        "yyyyMMdd",
+                                        CultureInfo.InvariantCulture
+                                    );
+                                }
+                                catch
+                                {
+                                    // just in case...
+                                    return DateTime.MaxValue;
+                                }
+                            }
+                        )
+                        .Where(time => time != DateTime.MaxValue)
+                        .OrderBy(x => x)
+                        .ToList();
+                }
+                catch
+                {
+                    // directory doesn't exist or path is null
+                    if (!isLiveMode)
+                    {
+                        // only add to cache if not live mode
+                        FineFilesCache[cacheKey] = new List<DateTime>();
+                    }
+                    return source;
+                }
+
+                if (!isLiveMode)
+                {
+                    // only add to cache if not live mode
+                    FineFilesCache[cacheKey] = availableDates;
+                }
+            }
+
+            // requested date before first date, return null source
+            if (availableDates.Count == 0 || date < availableDates[0])
+            {
+                return source;
+            }
+            for (var i = availableDates.Count - 1; i >= 0; i--)
+            {
+                // we iterate backwards ^ and find the first data point before 'date'
+                if (availableDates[i] <= date)
+                {
+                    return GetSourceForDatae(fine, config, availableDates[i], isLiveMode);
+                }
+            }
+
+            return source;
+        }
+
+        private static SubscriptionDataSource DailyBackwardsLoop(FineFundamental fine, SubscriptionDataConfig config, DateTime date, SubscriptionDataSource source, bool isLiveMode)
+        {
+            var path = Path.GetDirectoryName(source.Source) ?? string.Empty;
+            if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
+            {
+                // directory does not exist
+                return source;
+            }
+
+            // loop back in time, for 10 days, until we find an existing file
+            var count = 10;
+            do
+            {
+                // get previous date
+                date = date.AddDays(-1);
+
+                // get file name for this date
+                source = GetSourceForDatae(fine, config, date, isLiveMode);
+                if (File.Exists(source.Source))
+                {
+                    break;
+                }
+            }
+            while (--count > 0);
+
+            return count == 0 ? null : source;
         }
     }
 }
